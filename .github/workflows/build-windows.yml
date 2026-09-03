@@ -85,7 +85,6 @@ jobs:
       - name: Run the pure-logic unit test (no display needed)
         run: |
           python hello_cv_app/test_colorsweep.py
-        working-directory: hello_cv_app
 
       - name: Build exe
         run: |
