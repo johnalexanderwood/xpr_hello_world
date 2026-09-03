@@ -1,108 +1,109 @@
 # Xpr Windows build pipeline — hello world proof of concept
 
-This is the smallest possible version of the pipeline: build a
-Windows .exe from a Python script via GitHub Actions, on a real
-Windows runner, with an automated check that the exe actually
-works — with no Windows machine of your own required.
+Smallest-possible pipeline: build a Windows .exe from Python via
+GitHub Actions, on a real Windows runner, with an automated check
+that the exe actually works — no Windows machine of your own
+required. Three increasingly-realistic variants, each its own job:
 
-Two variants are proven out here:
-
-- **Console app** (`hello_app/`) — plain script, printed output.
-- **GUI app** (`hello_gui_app/`) — a real ttkbootstrap window,
-  packaged the same way. This is the one closer to actual Xpr.
+- **`build-console`** (`hello_app/`) — plain script, printed output.
+- **`build-gui`** (`hello_gui_app/`) — a ttkbootstrap window.
+- **`build-cv-gui`** (`hello_cv_app/`) — OpenCV generates an image
+  (a hue sweep), converted through Numpy -> PIL -> ImageTk and
+  displayed in a ttkbootstrap Label. This is the closest one yet to
+  actual Xpr's load-image-and-draw-on-it shape.
 
 ## What's here
 
-- `hello_app/hello.py` / `hello_app/test_hello.py` — console
-  hello-world and its smoke test (checks stdout).
-- `hello_gui_app/hello_gui.py` — a minimal ttkbootstrap window.
-  Takes an optional `--autoclose-ms=<n>` flag so it can close
-  itself automatically under CI; without it, it just stays open
-  for a human to look at.
-- `hello_gui_app/test_hello_gui.py` — GUI smoke test. Doesn't
-  check stdout (unreliable for `--windowed` Windows builds) —
-  instead confirms the exe launches and exits cleanly within a
-  timeout, using the autoclose flag.
-- `.github/workflows/build-windows.yml` — two parallel jobs,
-  `build-console` and `build-gui`, each building, smoke-testing,
-  and uploading its own exe as a build artifact.
+- `hello_app/` — console hello-world + its smoke test.
+- `hello_gui_app/` — minimal ttkbootstrap window + smoke test.
+- `hello_cv_app/`:
+  - `colorsweep.py` — pure OpenCV/Numpy image generation, kept
+    separate from any GUI code so it's independently unit-testable.
+  - `test_colorsweep.py` — fast unit test of that logic (shape,
+    dtype, that colour actually varies). No display needed — this
+    runs in CI even before the exe is built.
+  - `hello_cv_gui.py` — the window: generates the sweep, converts
+    it to a Tk-displayable image, shows it in a Label.
+  - `test_hello_cv_gui.py` — same launches-and-exits-cleanly smoke
+    test pattern as the plain GUI app.
+- `.github/workflows/build-windows.yml` — three parallel jobs, each
+  building, testing, and uploading its own exe.
 
 ## How to try it
 
-1. Copy this whole folder structure into a repo, preserving paths
-   exactly — `hello_app/`, `hello_gui_app/`, and
-   `.github/workflows/build-windows.yml` all at the repo root.
-   (If uploading via the GitHub web UI, use **Add file → Create
-   new file** and type the full path including slashes — drag-and-
-   drop uploads can flatten folder structure.)
+1. Copy the whole structure into a repo, preserving paths exactly.
+   (Web UI uploads can flatten folders — use **Add file → Create
+   new file** and type full paths with slashes if so.)
 2. Commit and push to `main`.
-3. Check the **Actions** tab — "Build Windows Exe" should appear
-   and run both jobs.
-4. Download each exe from the run's **Artifacts** section, or set
-   up a GitHub **Release** for a permanent, no-login-required
-   download link to send to a tester.
+3. Check **Actions** — all three jobs should run.
+4. Download exes from **Artifacts**, or set up a **Release** for a
+   permanent link to send a tester.
 
 ## Real packaging issues found (and fixed) building this
 
-Two genuine PyInstaller/ttkbootstrap issues turned up while
-building the GUI variant — both fixed and now baked into the
-workflow above:
-
 1. **Missing ttkbootstrap asset files.** PyInstaller doesn't
-   automatically bundle non-Python files a package ships (icon
-   fonts, in this case). Without `--collect-data ttkbootstrap`,
-   the exe builds fine but crashes on launch with
-   `FileNotFoundError: .../ttkbootstrap/assets/icons/bootstrap.ttf`.
-2. **Missing PIL hidden import.** `PIL.ImageTk` locates
-   `PIL._tkinter_finder` dynamically at runtime, which PyInstaller's
-   static analysis doesn't catch. Without
-   `--hidden-import PIL._tkinter_finder`, the exe crashes on first
-   themed-icon render with `ModuleNotFoundError`.
-
-Both are now in the `build-gui` job's PyInstaller command.
+   auto-bundle non-Python package files (icon fonts). Fixed with
+   `--collect-data ttkbootstrap`.
+2. **Missing PIL hidden import.** `PIL.ImageTk` finds
+   `PIL._tkinter_finder` dynamically at runtime, invisible to
+   PyInstaller's static analysis. Fixed with
+   `--hidden-import PIL._tkinter_finder`.
+3. **OpenCV** — used `opencv-python-headless` rather than
+   `opencv-python`, since nothing here uses cv2's own GUI/imshow
+   functions, and headless avoids bundling Qt/GTK dependencies
+   PyInstaller would otherwise have to package for no benefit.
+   Locally (Linux), the `build-cv-gui` job's PyInstaller command
+   needed no extra flags beyond what `build-gui` already had — but
+   this was NOT tested on Windows locally (no Windows machine), and
+   OpenCV's Windows packaging has its own known quirks (missing
+   VC++ runtime DLLs, sometimes needing `--collect-all cv2`). The
+   real test is whichever CI run you trigger next — watch that job's
+   log even if the other two look fine.
 
 ## On the resize-constant (NEAREST/LINEAR) issue
 
-This is a real, documented ttkbootstrap/Pillow compatibility bug:
-Pillow 10+ removed old-style resize filter names
-(`Image.CUBIC`, `Image.LINEAR`, `Image.ANTIALIAS`) in favour of
-`Image.Resampling.*`, but some ttkbootstrap widget code still calls
-the old names — see
-https://github.com/israel-dryer/ttkbootstrap/issues/472. A
-defensive monkeypatch is included at the top of `hello_gui.py`
-(restores the old names as aliases before ttkbootstrap is
-imported), matching what you remembered needing before.
-
-Tested directly here: a plain `Window` + `Label`, as in this
-hello-world, does **not** actually trigger the bug — it's specific
-to certain widgets (the `Meter` widget, per the upstream issue).
-So the patch isn't proven necessary for this minimal case, but it's
-cheap insurance and worth keeping once real Xpr widgets are
-added, since you won't want to rediscover this mid-deadline.
+Real, documented ttkbootstrap/Pillow bug: Pillow 10+ removed
+old-style names (`Image.CUBIC`, `Image.LINEAR`, `Image.ANTIALIAS`)
+in favour of `Image.Resampling.*`; some ttkbootstrap widgets still
+call the old names.
+See: https://github.com/israel-dryer/ttkbootstrap/issues/472
+A defensive monkeypatch sits at the top of both `hello_gui.py` and
+`hello_cv_gui.py` (restores old names as aliases before ttkbootstrap
+is imported). Tested directly: a plain `Window`+`Label` does not
+trigger it — it's specific to certain widgets (`Meter`, per the
+upstream issue) — so it's not proven necessary yet, but it's cheap
+insurance for when real Xpr widgets are added.
 
 ## What this proves (and doesn't)
 
 Proves:
-- Console AND GUI (Tk + ttkbootstrap + Pillow) apps can go from
-  Python source to a working Windows .exe with zero local Windows
-  access, via a repeatable, automatically-verified CI pipeline.
-- Two real packaging gaps specific to this dependency stack are now
-  known and fixed, before any real Xpr code is at stake.
+- Console, plain-GUI, and OpenCV+GUI apps can all go from Python
+  source to a working Windows .exe with zero local Windows access.
+- The core Xpr dependency stack (Tk, ttkbootstrap, Pillow,
+  OpenCV, Numpy) can be packaged together, with known gaps already
+  fixed.
+- Pure logic (image generation) is tested separately from the GUI
+  shell, which is the pattern worth carrying into real Xpr —
+  most things should be unit-testable without a display; only the
+  thin GUI wrapper needs the "launches and exits cleanly" style of
+  smoke test.
 
 Doesn't yet prove:
-- That the resulting exe runs cleanly on a machine that isn't the
-  CI runner (different Windows versions, missing VC++ redistributables,
-  antivirus flagging an unsigned exe, etc.) — that's what a
-  friendly-tester step before the real release is for.
-- Anything about what's actually on screen — the smoke test checks
-  launch/exit behaviour, not visual correctness. Look at it yourself
-  at least once via a downloaded artifact.
-- Behaviour with the real dependency set (OpenCV, larger images,
-  your actual plugin architecture) — this is still a near-empty app.
+- Behaviour on a real Windows machine that isn't the CI runner
+  (different Windows versions, missing redistributables, antivirus
+  flagging an unsigned exe) — needs a friendly-tester pass before
+  the real release.
+- Anything about large images (this is a 400x200 test pattern, not
+  32k x 4k) — memory behaviour at real Xpr scale is still
+  untested through this pipeline.
+- Anything about the real plugin architecture, `.drw` save/load, or
+  actual geological imagery — this remains a deliberately trivial
+  stand-in for all of that.
 
 ## Suggested next increment
 
-Bring in OpenCV alongside ttkbootstrap in the same pattern — a
-window that loads and displays one modestly-sized image. OpenCV has
-its own PyInstaller quirks (missing DLLs, `--collect-all cv2` is
-often needed) worth surfacing now rather than later.
+Load a real (moderately large, e.g. a few thousand pixels wide)
+image file bundled with the exe or opened via a file dialog, rather
+than a generated 400x200 pattern — this starts testing actual
+memory/performance behaviour and file-dialog packaging (Tk's native
+file dialogs can have their own PyInstaller wrinkles on Windows).
