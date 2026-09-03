@@ -65,3 +65,38 @@ jobs:
         with:
           name: hello_xpr_gui-windows-exe
           path: dist/hello_xpr_gui.exe
+
+  build-cv-gui:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller ttkbootstrap pillow numpy opencv-python-headless
+
+      - name: Run the pure-logic unit test (no display needed)
+        run: |
+          python hello_cv_app/test_colorsweep.py
+        working-directory: hello_cv_app
+
+      - name: Build exe
+        run: |
+          pyinstaller --onefile --windowed --collect-data ttkbootstrap --hidden-import PIL._tkinter_finder --name hello_xpr_cv hello_cv_app/hello_cv_gui.py
+
+      - name: Smoke test the exe
+        run: |
+          python hello_cv_app/test_hello_cv_gui.py dist/hello_xpr_cv.exe
+
+      - name: Upload exe as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_xpr_cv-windows-exe
+          path: dist/hello_xpr_cv.exe
