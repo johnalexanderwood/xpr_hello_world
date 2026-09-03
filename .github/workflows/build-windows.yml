@@ -6,9 +6,8 @@ on:
   workflow_dispatch: {}
 
 jobs:
-  build:
+  build-console:
     runs-on: windows-latest
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -36,3 +35,33 @@ jobs:
         with:
           name: hello_xpr-windows-exe
           path: dist/hello_xpr.exe
+
+  build-gui:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller ttkbootstrap pillow
+
+      - name: Build exe
+        run: |
+          pyinstaller --onefile --windowed --collect-data ttkbootstrap --hidden-import PIL._tkinter_finder --name hello_xpr_gui hello_gui_app/hello_gui.py
+
+      - name: Smoke test the exe
+        run: |
+          python hello_gui_app/test_hello_gui.py dist/hello_xpr_gui.exe
+
+      - name: Upload exe as build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: hello_xpr_gui-windows-exe
+          path: dist/hello_xpr_gui.exe
