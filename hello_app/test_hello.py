@@ -10,7 +10,7 @@ directly as a CI step that fails the build on a bad exe.
 import subprocess
 import sys
 
-EXPECTED = ""Hello World, this is an experiment!"
+EXPECTED = "Hello World, this is an experiment!"
 
 
 def main():
